@@ -3,6 +3,9 @@ package com.palarz.mike.photogallery;
 import android.net.Uri;
 import android.util.Log;
 
+import com.google.gson.Gson;
+import com.google.gson.stream.JsonReader;
+
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -10,6 +13,7 @@ import org.json.JSONObject;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.StringReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.ArrayList;
@@ -67,6 +71,7 @@ public class FlickrFetchr {
             String jsonString = getURLString(url);
             Log.i(TAG, "Received JSON: " + jsonString);
             JSONObject jsonBody = new JSONObject(jsonString);
+            Log.i(TAG, "Prettier version of JSON: " + jsonBody.toString());
             parseItems(items, jsonBody);
         }
         catch (JSONException je){
@@ -80,12 +85,21 @@ public class FlickrFetchr {
 
     private void parseItems(List<GalleryItem> items, JSONObject jsonBody)
             throws IOException, JSONException{
+        Gson gson = new Gson();
 
         JSONObject photosJSONObject = jsonBody.getJSONObject("photos");
         JSONArray photoJSONArray = photosJSONObject.getJSONArray("photo");
 
         for(int i = 0; i < photoJSONArray.length(); i++){
             JSONObject photoJSONObject = photoJSONArray.getJSONObject(i);
+
+            //Code for challenge
+            JsonReader reader = new JsonReader(new StringReader(photoJSONObject.getString("title")));
+            reader.setLenient(true);
+            String test = gson.fromJson(photoJSONObject.getString("title"), String.class);
+//            String test = gson.fromJson(reader, String.class);
+//            String test = gson.fromJson(photoJSONObject.toString(), String.class);
+            Log.i(TAG, "Value of test: " + test);
 
             GalleryItem item = new GalleryItem();
             item.setID(photoJSONObject.getString("id"));

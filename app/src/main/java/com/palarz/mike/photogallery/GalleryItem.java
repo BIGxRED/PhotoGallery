@@ -1,11 +1,18 @@
 package com.palarz.mike.photogallery;
 
+import com.google.gson.annotations.SerializedName;
+
 /**
  * Created by mike on 11/5/16.
  */
 public class GalleryItem {
+    @SerializedName("title")
     private String mCaption;
+
+    @SerializedName("id")
     private String mID;
+
+    @SerializedName("url_s")
     private String mURL;
 
     public String getCaption() {
