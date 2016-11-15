@@ -4,7 +4,9 @@ import android.os.AsyncTask;
 import android.os.Bundle;
 import android.support.v4.app.Fragment;
 import android.support.v7.widget.GridLayoutManager;
+import android.support.v7.widget.LinearLayoutManager;
 import android.support.v7.widget.RecyclerView;
+import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -21,6 +23,9 @@ public class PhotoGalleryFragment extends Fragment {
 
     private RecyclerView mPhotoRecyclerView;
     private List<GalleryItem> mItems = new ArrayList<>();
+    private boolean loading = true;
+    private int mPageNumber;    //Keeps track of which page number to load in order to allow
+                                // endless scrolling
 
     public static PhotoGalleryFragment newInstance(){
         return new PhotoGalleryFragment();
@@ -33,7 +38,8 @@ public class PhotoGalleryFragment extends Fragment {
         //More specifically, it ensures that the same fragment instance is retained across
         //Activity recreation
         setRetainInstance(true);
-        new FetchItemsTask().execute();
+        mPageNumber = 1;
+        new FetchItemsTask().execute(mPageNumber);
     }
 
     @Override
@@ -43,6 +49,34 @@ public class PhotoGalleryFragment extends Fragment {
         mPhotoRecyclerView = (RecyclerView) v
                 .findViewById(R.id.fragment_photo_gallery_recycler_view);
         mPhotoRecyclerView.setLayoutManager(new GridLayoutManager(getActivity(), 3));
+
+        mPhotoRecyclerView.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            @Override
+            public void onScrolled(RecyclerView view, int dx, int dy){
+                super.onScrolled(view, dx, dy);
+                if(dy > 0){
+                    /**Obtain a reference to the layout manager and cast it as a LinearLayoutManager.
+                    The casting is necessary in order to use findFirstVisibleItemPosition
+                    for pastVisibleItems
+                     **/
+                    LinearLayoutManager layoutManager = (LinearLayoutManager) mPhotoRecyclerView
+                            .getLayoutManager();
+                    int visibleItemCount = mPhotoRecyclerView.getLayoutManager().getChildCount();
+                    int totalItemCount = mPhotoRecyclerView.getLayoutManager().getItemCount();
+                    int pastVisibleItems = layoutManager.findFirstVisibleItemPosition();
+
+                    if(loading){
+                        if((visibleItemCount + pastVisibleItems) >= totalItemCount) {
+                            loading = false;
+                            Log.i(TAG, "Reached the bottom of the RecyclerView!");
+                            Log.i(TAG, "New value of mPageNumber: " + mPageNumber);
+                            new FetchItemsTask().execute(mPageNumber);
+                            loading = true;
+                        }
+                    }
+                }
+            }
+        });
 
         setupAdapter();
 
@@ -80,16 +114,29 @@ public class PhotoGalleryFragment extends Fragment {
      * 3rd parameter: The result produced by the ASyncTask; it sets the return type of
      * doInBackground() and the input parameter of onPostExecute()
      */
-    private class FetchItemsTask extends AsyncTask<Void, Void, List<GalleryItem>>{
+    private class FetchItemsTask extends AsyncTask<Integer, Void, List<GalleryItem>>{
         @Override
-        protected List<GalleryItem> doInBackground(Void... params){
-            return new FlickrFetchr().fetchItems();
+        protected List<GalleryItem> doInBackground(Integer... params){
+            return new FlickrFetchr().fetchItems(mPageNumber);
         }
 
         @Override
         protected void onPostExecute(List<GalleryItem> items){
-            mItems = items;
-            setupAdapter();
+            //If mItems has already been set and more pages have been fetched, append those pages
+            //to mItems
+            if (mPageNumber > 1){
+                //Add the new GalleryItems to mItems
+                mItems.addAll(items);
+                //Force the adapter to reload all ViewHolders; this is necessary, otherwise new
+                //GalleryItems will not be loaded
+                mPhotoRecyclerView.getAdapter().notifyDataSetChanged();
+            }
+            //If the first page is fetched (mPageNumber == 1), initialized mItems accordingly
+            else {
+                mItems = items;
+                setupAdapter();
+            }
+            mPageNumber++;
         }
     }
 

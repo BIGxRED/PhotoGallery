@@ -4,7 +4,6 @@ import android.net.Uri;
 import android.util.Log;
 
 import com.google.gson.Gson;
-import com.google.gson.stream.JsonReader;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -13,7 +12,6 @@ import org.json.JSONObject;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.StringReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.ArrayList;
@@ -55,10 +53,11 @@ public class FlickrFetchr {
         return new String(getURLBytes(URLSpec));
     }
 
-    public List<GalleryItem> fetchItems(){
+    public List<GalleryItem> fetchItems(Integer pageNumber){
         List<GalleryItem> items = new ArrayList<>();
 
         try{
+            /*
             String url = Uri.parse("https://api.flickr.com/services/rest/")
                     .buildUpon()
                     .appendQueryParameter("method", "flickr.photos.getRecent")
@@ -67,11 +66,11 @@ public class FlickrFetchr {
                     .appendQueryParameter("nojsoncallback", "1")
                     .appendQueryParameter("extras", "url_s")
                     .build().toString();
-
+            */
+            String url = parseURI(pageNumber);
             String jsonString = getURLString(url);
             Log.i(TAG, "Received JSON: " + jsonString);
             JSONObject jsonBody = new JSONObject(jsonString);
-            Log.i(TAG, "Prettier version of JSON: " + jsonBody.toString());
             parseItems(items, jsonBody);
         }
         catch (JSONException je){
@@ -94,24 +93,29 @@ public class FlickrFetchr {
             JSONObject photoJSONObject = photoJSONArray.getJSONObject(i);
 
             //Code for challenge
-            JsonReader reader = new JsonReader(new StringReader(photoJSONObject.getString("title")));
-            reader.setLenient(true);
-            String test = gson.fromJson(photoJSONObject.getString("title"), String.class);
-//            String test = gson.fromJson(reader, String.class);
-//            String test = gson.fromJson(photoJSONObject.toString(), String.class);
-            Log.i(TAG, "Value of test: " + test);
+            GalleryItem item = gson.fromJson(photoJSONObject.toString(), GalleryItem.class);
 
-            GalleryItem item = new GalleryItem();
-            item.setID(photoJSONObject.getString("id"));
-            item.setCaption(photoJSONObject.getString("title"));
-//            Log.i(TAG, "The current photo's ID: " + photoJSONObject.getString("id"));
-//            Log.i(TAG, "The current photo's title: " + photoJSONObject.getString("title"));
-
+            //If the current item doesn't have a value for "url_s", it will not be added to the
+            //array of GalleryItems
             if(!photoJSONObject.has("url_s"))
                 continue;
 
-            item.setURL(photoJSONObject.getString("url_s"));
+//            item.setURL(photoJSONObject.getString("url_s"));
+            Log.i(TAG, "Current gallery item: " + item.toString());
             items.add(item);
         }
+    }
+
+    private String parseURI(int pageNumber){
+        return Uri.parse("https://api.flickr.com/services/rest/")
+                .buildUpon()
+                .appendQueryParameter("method", "flickr.photos.getRecent")
+                .appendQueryParameter("api_key", API_KEY)
+                .appendQueryParameter("format", "json")
+                .appendQueryParameter("nojsoncallback", "1")
+                .appendQueryParameter("extras", "url_s")
+                //Part of challenge: Pulls in a page specified by pageNumber for endless scrolling
+                .appendQueryParameter("page", Integer.toString(pageNumber))
+                .build().toString();
     }
 }

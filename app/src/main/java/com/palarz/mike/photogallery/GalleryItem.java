@@ -6,6 +6,13 @@ import com.google.gson.annotations.SerializedName;
  * Created by mike on 11/5/16.
  */
 public class GalleryItem {
+
+    /**
+     * The @SerealizedName() annotation is used so that the GSON parser can properly map the member
+     * variable to the key value within the JSON data. This annotation was necessary since our
+     * member variables do not have the same names as the JSON keys.
+     */
+
     @SerializedName("title")
     private String mCaption;
 
