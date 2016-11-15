@@ -4,9 +4,7 @@ import android.os.AsyncTask;
 import android.os.Bundle;
 import android.support.v4.app.Fragment;
 import android.support.v7.widget.GridLayoutManager;
-import android.support.v7.widget.LinearLayoutManager;
 import android.support.v7.widget.RecyclerView;
-import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -23,7 +21,7 @@ public class PhotoGalleryFragment extends Fragment {
 
     private RecyclerView mPhotoRecyclerView;
     private List<GalleryItem> mItems = new ArrayList<>();
-    private boolean loading = true;
+//    private boolean loading = true;
     private int mPageNumber;    //Keeps track of which page number to load in order to allow
                                 // endless scrolling
 
@@ -55,24 +53,18 @@ public class PhotoGalleryFragment extends Fragment {
             public void onScrolled(RecyclerView view, int dx, int dy){
                 super.onScrolled(view, dx, dy);
                 if(dy > 0){
+                    //NO LONGER NEEDED: Only keeping this here since it was a creative workaround
+                    //and may be needed for other situations
                     /**Obtain a reference to the layout manager and cast it as a LinearLayoutManager.
                     The casting is necessary in order to use findFirstVisibleItemPosition
-                    for pastVisibleItems
                      **/
-                    LinearLayoutManager layoutManager = (LinearLayoutManager) mPhotoRecyclerView
-                            .getLayoutManager();
-                    int visibleItemCount = mPhotoRecyclerView.getLayoutManager().getChildCount();
-                    int totalItemCount = mPhotoRecyclerView.getLayoutManager().getItemCount();
-                    int pastVisibleItems = layoutManager.findFirstVisibleItemPosition();
+//                    LinearLayoutManager layoutManager = (LinearLayoutManager) mPhotoRecyclerView
+//                            .getLayoutManager();
 
-                    if(loading){
-                        if((visibleItemCount + pastVisibleItems) >= totalItemCount) {
-                            loading = false;
-                            Log.i(TAG, "Reached the bottom of the RecyclerView!");
-                            Log.i(TAG, "New value of mPageNumber: " + mPageNumber);
-                            new FetchItemsTask().execute(mPageNumber);
-                            loading = true;
-                        }
+                    //If vertical scrolling is no longer possible (we've reached the end of the
+                    //RecyclerView), fetch the next set of items
+                    if(!mPhotoRecyclerView.canScrollVertically(1)){
+                        new FetchItemsTask().execute(mPageNumber);
                     }
                 }
             }
