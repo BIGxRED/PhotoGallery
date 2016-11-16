@@ -1,14 +1,19 @@
 package com.palarz.mike.photogallery;
 
+import android.graphics.Bitmap;
+import android.graphics.drawable.BitmapDrawable;
+import android.graphics.drawable.Drawable;
 import android.os.AsyncTask;
 import android.os.Bundle;
+import android.os.Handler;
 import android.support.v4.app.Fragment;
 import android.support.v7.widget.GridLayoutManager;
 import android.support.v7.widget.RecyclerView;
+import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.TextView;
+import android.widget.ImageView;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -21,9 +26,14 @@ public class PhotoGalleryFragment extends Fragment {
 
     private RecyclerView mPhotoRecyclerView;
     private List<GalleryItem> mItems = new ArrayList<>();
-//    private boolean loading = true;
-    private int mPageNumber;    //Keeps track of which page number to load in order to allow
-                                // endless scrolling
+
+    //Keeps track of which page number to load in order to allow endless scrolling
+    private int mPageNumber;
+
+    //An instance of the ThumbnailDownloader class; PhotoHolder is being used as the Type argument
+    //because this argument specifies the type of object that will be used as the identifier of the
+    //download
+    private ThumbnailDownloader<PhotoHolder> mThumbnailDownloader;
 
     public static PhotoGalleryFragment newInstance(){
         return new PhotoGalleryFragment();
@@ -38,6 +48,30 @@ public class PhotoGalleryFragment extends Fragment {
         setRetainInstance(true);
         mPageNumber = 1;
         new FetchItemsTask().execute(mPageNumber);
+
+        //This handler will be attached to the main UI thread and will be associated to that
+        //thread's Looper; it is only passed on to the ThumbnailDownloader thread in order to
+        //retrieve the Bitmap needed for the Flickr images
+        Handler responseHandler = new Handler();
+
+        mThumbnailDownloader = new ThumbnailDownloader<>(responseHandler);
+        mThumbnailDownloader.setThumbnailDownloadListener(
+            new ThumbnailDownloader.ThumbnailDownloadListener<PhotoHolder>() {
+                @Override
+                    public void onThumbnailDownloaded(PhotoHolder photoHolder, Bitmap bitmap) {
+                        Drawable drawable = new BitmapDrawable(getResources(), bitmap);
+                        photoHolder.bindDrawable(drawable);
+                }
+            }
+        );
+        mThumbnailDownloader.start();
+
+        //getLooper() is called in order to ensure that the threads "guts" are ready before
+        //proceeding; also removes the possibility of a potential race condition occurring; this is
+        //because until getLooper() is called, there is no guarantee that onLooperPrepared() has
+        //also been called
+        mThumbnailDownloader.getLooper();
+        Log.i(TAG, "Background thread has started");
     }
 
     @Override
@@ -50,20 +84,20 @@ public class PhotoGalleryFragment extends Fragment {
 
         mPhotoRecyclerView.addOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override
-            public void onScrolled(RecyclerView view, int dx, int dy){
+            public void onScrolled(RecyclerView view, int dx, int dy) {
                 super.onScrolled(view, dx, dy);
-                if(dy > 0){
+                if (dy > 0) {
                     //NO LONGER NEEDED: Only keeping this here since it was a creative workaround
                     //and may be needed for other situations
                     /**Obtain a reference to the layout manager and cast it as a LinearLayoutManager.
-                    The casting is necessary in order to use findFirstVisibleItemPosition
+                     The casting is necessary in order to use findFirstVisibleItemPosition
                      **/
 //                    LinearLayoutManager layoutManager = (LinearLayoutManager) mPhotoRecyclerView
 //                            .getLayoutManager();
 
                     //If vertical scrolling is no longer possible (we've reached the end of the
-                    //RecyclerView), fetch the next set of items
-                    if(!mPhotoRecyclerView.canScrollVertically(1)){
+                    //RecyclerView, which is what the 1 specifies), fetch the next set of items
+                    if (!mPhotoRecyclerView.canScrollVertically(1)) {
                         new FetchItemsTask().execute(mPageNumber);
                     }
                 }
@@ -75,6 +109,23 @@ public class PhotoGalleryFragment extends Fragment {
         return v;
     }
 
+    @Override
+    public void onDestroyView(){
+        super.onDestroyView();
+        mThumbnailDownloader.clearQueue();  //Clear the message queue so that the images are loaded
+                                            //correctly upon screen rotation
+    }
+
+    @Override
+    public void onDestroy(){
+        super.onDestroy();
+
+        //Thread is destroyed in order to ensure that it is terminated; otherwise, it will never die
+        //and continue to live after the app is closed/destroyed
+        mThumbnailDownloader.quit();
+        Log.i(TAG, "Background thread destroyed");
+    }
+
     private void setupAdapter(){
         if(isAdded()){
             mPhotoRecyclerView.setAdapter(new PhotoAdapter(mItems));
@@ -82,15 +133,49 @@ public class PhotoGalleryFragment extends Fragment {
     }
 
     private class PhotoHolder extends RecyclerView.ViewHolder {
-        private TextView mTitleTextView;
+//        private TextView mTitleTextView;
+        private ImageView mItemImageView;
 
         public PhotoHolder(View itemView){
             super(itemView);
-            mTitleTextView = (TextView) itemView;
+//            mTitleTextView = (TextView) itemView;
+            mItemImageView = (ImageView) itemView
+                    .findViewById(R.id.fragment_photo_gallery_image_view);
         }
 
-        public void bindGalleryItem(GalleryItem item){
-            mTitleTextView.setText(item.toString());
+//        public void bindGalleryItem(GalleryItem item){
+//            mTitleTextView.setText(item.toString());
+//        }
+        public void bindDrawable(Drawable drawable){
+            mItemImageView.setImageDrawable(drawable);
+        }
+    }
+
+    private class PhotoAdapter extends RecyclerView.Adapter<PhotoHolder>{
+        private List<GalleryItem> mGalleryItems;
+
+        public PhotoAdapter(List<GalleryItem> galleryItems){
+            mGalleryItems = galleryItems;
+        }
+
+        @Override
+        public PhotoHolder onCreateViewHolder(ViewGroup viewGroup, int viewType){
+            LayoutInflater inflater = LayoutInflater.from(getActivity());
+            View view = inflater.inflate(R.layout.gallery_item, viewGroup, false);
+            return new PhotoHolder(view);
+        }
+
+        @Override
+        public void onBindViewHolder(PhotoHolder photoHolder, int position){
+            GalleryItem galleryItem = mGalleryItems.get(position);
+            Drawable placeHolder = getResources().getDrawable(R.drawable.bill_up_close);
+            photoHolder.bindDrawable(placeHolder);
+            mThumbnailDownloader.queueThumbnail(photoHolder, galleryItem.getURL());
+        }
+
+        @Override
+        public int getItemCount(){
+            return mGalleryItems.size();
         }
     }
 
@@ -129,31 +214,6 @@ public class PhotoGalleryFragment extends Fragment {
                 setupAdapter();
             }
             mPageNumber++;
-        }
-    }
-
-    private class PhotoAdapter extends RecyclerView.Adapter<PhotoHolder>{
-        private List<GalleryItem> mGalleryItems;
-
-        public PhotoAdapter(List<GalleryItem> galleryItems){
-            mGalleryItems = galleryItems;
-        }
-
-        @Override
-        public PhotoHolder onCreateViewHolder(ViewGroup viewGroup, int viewType){
-            TextView textView = new TextView(getActivity());
-            return new PhotoHolder(textView);
-        }
-
-        @Override
-        public void onBindViewHolder(PhotoHolder photoHolder, int position){
-            GalleryItem galleryItem = mGalleryItems.get(position);
-            photoHolder.bindGalleryItem(galleryItem);
-        }
-
-        @Override
-        public int getItemCount(){
-            return mGalleryItems.size();
         }
     }
 
