@@ -6,8 +6,12 @@ import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Message;
 import android.util.Log;
+import android.util.LruCache;
 
 import java.io.IOException;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
@@ -31,6 +35,8 @@ public class ThumbnailDownloader<T> extends HandlerThread {
     private Handler mResponseHandler;
 
     private ThumbnailDownloadListener<T> mThumbnailDownloadListener;
+
+    private LruCache<String, Bitmap> mCache = new LruCache<>(16384);
 
     public interface ThumbnailDownloadListener<T>{
         void onThumbnailDownloaded(T target, Bitmap thumbnail);
@@ -70,11 +76,21 @@ public class ThumbnailDownloader<T> extends HandlerThread {
     private void handleRequest(final T target){
         try{
             final String url = mRequestMap.get(target);
-            if(url == null)
+            if(url == null) {
+                Log.e(TAG, "URL not found for provided target");
                 return;
+            }
             byte[] bitmapBytes = new FlickrFetchr().getURLBytes(url);
-            final Bitmap bitmap = BitmapFactory.decodeByteArray(bitmapBytes, 0, bitmapBytes.length);
-            Log.i(TAG, "Bitmap created");
+            final Bitmap bitmap;
+
+            if(mCache.get(url) != null){
+                bitmap = mCache.get(url);
+            }
+            else {
+                bitmap = BitmapFactory.decodeByteArray(bitmapBytes, 0, bitmapBytes.length);
+                mCache.put(url, bitmap);
+                Log.i(TAG, "Bitmap created");
+            }
 
             //The post() method allows us to have a message passed onto a different handler other
             //than the target handler;
@@ -88,8 +104,10 @@ public class ThumbnailDownloader<T> extends HandlerThread {
                      * new URL; the following check ensures that the correct image is loaded, even
                      * if another request is made in the mean time
                      **/
-                    if(mRequestMap.get(target) != url)
+                    if(mRequestMap.get(target) != url) {
+                        Log.e(TAG, "URL not found for provided target");
                         return;
+                    }
 
                     mRequestMap.remove(target);
                     mThumbnailDownloadListener.onThumbnailDownloaded(target, bitmap);
@@ -117,6 +135,15 @@ public class ThumbnailDownloader<T> extends HandlerThread {
     //rotation
     public void clearQueue(){
         mRequestHandler.removeMessages(MESSAGE_DOWNLOAD);
+    }
+
+    public void preloadCache(HashMap<T, String> photoHolders){
+        Iterator iterator = photoHolders.entrySet().iterator();
+        while(iterator.hasNext()){
+            Map.Entry pair = (Map.Entry) iterator.next();
+            handleRequest((T) pair.getKey());
+            Log.i(TAG, "Preloaded a URL: " + pair.getValue());
+        }
     }
 
 }

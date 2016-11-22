@@ -8,6 +8,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.support.v4.app.Fragment;
 import android.support.v7.widget.GridLayoutManager;
+import android.support.v7.widget.LinearLayoutManager;
 import android.support.v7.widget.RecyclerView;
 import android.util.Log;
 import android.view.LayoutInflater;
@@ -16,6 +17,7 @@ import android.view.ViewGroup;
 import android.widget.ImageView;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 
 /**
@@ -58,9 +60,38 @@ public class PhotoGalleryFragment extends Fragment {
         mThumbnailDownloader.setThumbnailDownloadListener(
             new ThumbnailDownloader.ThumbnailDownloadListener<PhotoHolder>() {
                 @Override
-                    public void onThumbnailDownloaded(PhotoHolder photoHolder, Bitmap bitmap) {
-                        Drawable drawable = new BitmapDrawable(getResources(), bitmap);
-                        photoHolder.bindDrawable(drawable);
+                public void onThumbnailDownloaded(PhotoHolder photoHolder, Bitmap bitmap) {
+                    //One idea for the challenge is to overload this method and add an
+                    //additional parameter that would be an array of GalleryItems
+                    //Or... Include a preloadCache method within ThumbnailDownloader and
+                    //use it as the last line within this method
+                    Drawable drawable = new BitmapDrawable(getResources(), bitmap);
+                    photoHolder.bindDrawable(drawable);
+
+                    //Preload cache challenge
+                    int currentPosition = photoHolder.getAdapterPosition();
+                    LinearLayoutManager layoutManager = (LinearLayoutManager) mPhotoRecyclerView
+                            .getLayoutManager();
+                    int lowestItem = currentPosition - 10;
+                    if(lowestItem < layoutManager.findFirstVisibleItemPosition()){
+                        while(lowestItem < layoutManager.findFirstVisibleItemPosition()){
+                            lowestItem++;
+                        }
+                    }
+                    
+                    int highestItem = currentPosition + 10;
+                    if(highestItem > layoutManager.findLastVisibleItemPosition()){
+                        while(highestItem > layoutManager.findLastVisibleItemPosition()){
+                            highestItem--;
+                        }
+                    }
+                    HashMap<PhotoHolder, String> itemsToPreload = new HashMap<PhotoHolder, String>(20);
+                    for(int i = lowestItem; i < highestItem + 1; i++){
+                        PhotoHolder currentHolder = (PhotoHolder) mPhotoRecyclerView
+                                .findViewHolderForLayoutPosition(i);
+                        itemsToPreload.put(currentHolder, mItems.get(i).getURL());
+                    }
+                    mThumbnailDownloader.preloadCache(itemsToPreload);
                 }
             }
         );
