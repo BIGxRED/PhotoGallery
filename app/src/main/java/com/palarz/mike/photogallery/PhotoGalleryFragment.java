@@ -8,7 +8,6 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.support.v4.app.Fragment;
 import android.support.v7.widget.GridLayoutManager;
-import android.support.v7.widget.LinearLayoutManager;
 import android.support.v7.widget.RecyclerView;
 import android.util.Log;
 import android.view.LayoutInflater;
@@ -17,7 +16,6 @@ import android.view.ViewGroup;
 import android.widget.ImageView;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 
 /**
@@ -54,6 +52,8 @@ public class PhotoGalleryFragment extends Fragment {
         //This handler will be attached to the main UI thread and will be associated to that
         //thread's Looper; it is only passed on to the ThumbnailDownloader thread in order to
         //retrieve the Bitmap needed for the Flickr images
+        //The reason that this handler is associated to the main thread is because it has been
+        //within onCreate()
         Handler responseHandler = new Handler();
 
         mThumbnailDownloader = new ThumbnailDownloader<>(responseHandler);
@@ -61,13 +61,15 @@ public class PhotoGalleryFragment extends Fragment {
             new ThumbnailDownloader.ThumbnailDownloadListener<PhotoHolder>() {
                 @Override
                 public void onThumbnailDownloaded(PhotoHolder photoHolder, Bitmap bitmap) {
-                    //One idea for the challenge is to overload this method and add an
-                    //additional parameter that would be an array of GalleryItems
-                    //Or... Include a preloadCache method within ThumbnailDownloader and
-                    //use it as the last line within this method
                     Drawable drawable = new BitmapDrawable(getResources(), bitmap);
                     photoHolder.bindDrawable(drawable);
 
+                }
+
+                /*
+                * Deprecated method: My own attempt at solving the preloading challenge
+                @Override
+                public HashMap<PhotoHolder, String> obtainPreloadItems(PhotoHolder photoHolder){
                     //Preload cache challenge
                     int currentPosition = photoHolder.getAdapterPosition();
                     LinearLayoutManager layoutManager = (LinearLayoutManager) mPhotoRecyclerView
@@ -78,7 +80,7 @@ public class PhotoGalleryFragment extends Fragment {
                             lowestItem++;
                         }
                     }
-                    
+
                     int highestItem = currentPosition + 10;
                     if(highestItem > layoutManager.findLastVisibleItemPosition()){
                         while(highestItem > layoutManager.findLastVisibleItemPosition()){
@@ -91,8 +93,10 @@ public class PhotoGalleryFragment extends Fragment {
                                 .findViewHolderForLayoutPosition(i);
                         itemsToPreload.put(currentHolder, mItems.get(i).getURL());
                     }
-                    mThumbnailDownloader.preloadCache(itemsToPreload);
+                    return itemsToPreload;
                 }
+                */
+
             }
         );
         mThumbnailDownloader.start();
@@ -196,17 +200,46 @@ public class PhotoGalleryFragment extends Fragment {
             return new PhotoHolder(view);
         }
 
+        //This method has been adjusted in order to implement preloading
         @Override
         public void onBindViewHolder(PhotoHolder photoHolder, int position){
             GalleryItem galleryItem = mGalleryItems.get(position);
-            Drawable placeHolder = getResources().getDrawable(R.drawable.bill_up_close);
-            photoHolder.bindDrawable(placeHolder);
-            mThumbnailDownloader.queueThumbnail(photoHolder, galleryItem.getURL());
+
+            //First, let's see if the image has already been cached
+            Bitmap bitmap = mThumbnailDownloader.getCachedImage(galleryItem.getURL());
+
+            //If the image has not been cached, then we will need to download it accordingly
+            if(bitmap == null) {
+                Drawable placeHolder = getResources().getDrawable(R.drawable.bill_up_close);
+                photoHolder.bindDrawable(placeHolder);
+                mThumbnailDownloader.queueThumbnail(photoHolder, galleryItem.getURL());
+            }
+
+            //Otherwise, we can load in the cached image
+            else{
+                Log.i(TAG, "Image from cache has been loaded");
+                photoHolder.bindDrawable(new BitmapDrawable(getResources(), bitmap));
+            }
+            obtainAdjacentImages(position);
         }
 
         @Override
         public int getItemCount(){
             return mGalleryItems.size();
+        }
+
+        private void obtainAdjacentImages(int position){
+            final int preloadBufferSize = 10;
+            int startIndex = Math.max(position - preloadBufferSize, 0);
+            int endIndex = Math.min(position + preloadBufferSize, mGalleryItems.size() - 1);
+
+            for(int i = startIndex; i < endIndex; i++){
+                //If i is on the image that the adapter is currently tied to, skip it and move
+                //onto the next image
+                if(i == position)
+                    continue;
+                mThumbnailDownloader.preloadImage(mGalleryItems.get(i).getURL());
+            }
         }
     }
 

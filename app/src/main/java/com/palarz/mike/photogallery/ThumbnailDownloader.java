@@ -9,9 +9,6 @@ import android.util.Log;
 import android.util.LruCache;
 
 import java.io.IOException;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
@@ -22,7 +19,8 @@ public class ThumbnailDownloader<T> extends HandlerThread {
     private static final String TAG = "ThumbnailDownloader";
 
     //Used to identify messages as download requests
-    private static final int MESSAGE_DOWNLOAD = 1;
+    private static final int MESSAGE_DOWNLOAD = 0;
+    private final static int MESSAGE_PRELOAD = 1;
 
     //The message handler; responsible for queueing message requests onto the ThumbnailDownloader
     //background thread; also responsible for processing download request messages when they are
@@ -34,12 +32,18 @@ public class ThumbnailDownloader<T> extends HandlerThread {
     //it will always be associated to the main thread's looper
     private Handler mResponseHandler;
 
+    //This interface allows us to set the downloaded Bitmap image to the ImageView that is in
+    //the PhotoGalleryFragment. Thus, it allows us to separate the background thread from the UI
     private ThumbnailDownloadListener<T> mThumbnailDownloadListener;
 
-    private LruCache<String, Bitmap> mCache = new LruCache<>(16384);
+    private LruCache<String, Bitmap> mCache;
 
     public interface ThumbnailDownloadListener<T>{
         void onThumbnailDownloaded(T target, Bitmap thumbnail);
+
+//        Deprecated method: My own attempt at solving the preloading challenge
+//        HashMap<T, String> obtainPreloadItems(T target);
+
     }
 
     //This hash map is used in order to store key-value pairs; in this case, the keys will be the
@@ -49,6 +53,7 @@ public class ThumbnailDownloader<T> extends HandlerThread {
     public ThumbnailDownloader(Handler responseHandler){
         super(TAG);
         mResponseHandler = responseHandler;
+        mCache = new LruCache<>(16384);
     }
 
     public void setThumbnailDownloadListener(ThumbnailDownloadListener<T> listener){
@@ -64,59 +69,57 @@ public class ThumbnailDownloader<T> extends HandlerThread {
             //to be processed
             @Override
             public void handleMessage(Message msg){
-                if(msg.what == MESSAGE_DOWNLOAD){
-                    T target = (T) msg.obj;
-                    Log.i(TAG, "Got a request for a URL: " + mRequestMap.get(target));
-                    handleRequest(target);
+                switch (msg.what) {
+
+                    case MESSAGE_DOWNLOAD:
+                        T target = (T) msg.obj;
+                        Log.i(TAG, "Got a request for a URL: " + mRequestMap.get(target));
+                        handleRequest(target);
+                        break;
+
+                    case MESSAGE_PRELOAD:
+                        String url = (String) msg.obj;
+                        downloadImage(url);
+                        break;
                 }
             }
         };
     }
 
     private void handleRequest(final T target){
-        try{
-            final String url = mRequestMap.get(target);
-            if(url == null) {
-                Log.e(TAG, "URL not found for provided target");
-                return;
-            }
-            byte[] bitmapBytes = new FlickrFetchr().getURLBytes(url);
-            final Bitmap bitmap;
+        final String url = mRequestMap.get(target);
+        if(url == null) {
+            Log.e(TAG, "URL not found for provided target");
+            return;
+        }
 
-            if(mCache.get(url) != null){
-                bitmap = mCache.get(url);
-            }
-            else {
-                bitmap = BitmapFactory.decodeByteArray(bitmapBytes, 0, bitmapBytes.length);
-                mCache.put(url, bitmap);
-                Log.i(TAG, "Bitmap created");
-            }
+        final Bitmap bitmap = downloadImage(url);
 
-            //The post() method allows us to have a message passed onto a different handler other
-            //than the target handler;
-            mResponseHandler.post(new Runnable() {
-                @Override
-                public void run() {
-                    /**
-                     * A RecyclerView is being used to display the images; this view "recycles" its
-                     * views (PhotoHolders); by the time ThumbnailDownloader finishes downloading
-                     * the image, the RecyclerView may have recycled the PhotoHolder and requested a
-                     * new URL; the following check ensures that the correct image is loaded, even
-                     * if another request is made in the mean time
-                     **/
-                    if(mRequestMap.get(target) != url) {
-                        Log.e(TAG, "URL not found for provided target");
-                        return;
-                    }
-
-                    mRequestMap.remove(target);
-                    mThumbnailDownloadListener.onThumbnailDownloaded(target, bitmap);
+        //post() allows us to have something performed without having to create
+        //a message and sending it to the message queue; the handler does not actually
+        //perform the action in post(); instead, the action is performed directly through post()
+        mResponseHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                /**
+                 * A RecyclerView is being used to display the images; this view "recycles" its
+                 * views (PhotoHolders); by the time ThumbnailDownloader finishes downloading
+                 * the image, the RecyclerView may have recycled the PhotoHolder and requested a
+                 * new URL; the following check ensures that the correct image is loaded, even
+                 * if another request is made in the mean time
+                 **/
+                if(mRequestMap.get(target) != url) {
+                    Log.e(TAG, "URL not found for provided target");
+                    return;
                 }
-            });
-        }
-        catch(IOException ioe){
-            Log.e(TAG, "Error downloading message", ioe);
-        }
+
+                mRequestMap.remove(target);
+                mThumbnailDownloadListener.onThumbnailDownloaded(target, bitmap);
+//                    Depracated method from my attempt of solving the preloading challenge
+//
+//                    preloadCache(mThumbnailDownloadListener.obtainPreloadItems(target));
+            }
+        });
     }
 
     public void queueThumbnail(T target, String url){
@@ -137,12 +140,50 @@ public class ThumbnailDownloader<T> extends HandlerThread {
         mRequestHandler.removeMessages(MESSAGE_DOWNLOAD);
     }
 
+    public Bitmap getCachedImage(String url){
+        return mCache.get(url);
+    }
+
+    public void preloadImage(String url){
+        mRequestHandler.obtainMessage(MESSAGE_PRELOAD, url).sendToTarget();
+    }
+
+    /*
+    * Deprecated method: My own attempt at solving the preloading challenge
     public void preloadCache(HashMap<T, String> photoHolders){
         Iterator iterator = photoHolders.entrySet().iterator();
         while(iterator.hasNext()){
             Map.Entry pair = (Map.Entry) iterator.next();
             handleRequest((T) pair.getKey());
             Log.i(TAG, "Preloaded a URL: " + pair.getValue());
+        }
+    }
+    */
+
+    private Bitmap downloadImage(String url){
+        //If somehow the URL was incorrectly used, return null
+        if(url == null)
+            return null;
+
+        //If the image has already been cached, then extract it from the cache
+        Bitmap bitmap = mCache.get(url);
+        if(bitmap != null)
+            return bitmap;
+
+        //Otherwise, let's attempt to download the image and catch any exceptions that may occur
+        //Place the newly-downloaded image into the cache
+        try {
+            byte[] bitmapBytes = new FlickrFetchr().getURLBytes(url);
+
+            bitmap = BitmapFactory.decodeByteArray(bitmapBytes, 0, bitmapBytes.length);
+            mCache.put(url, bitmap);
+            Log.i(TAG, "Downloaded and cached bitmap!");
+            return bitmap;
+        }
+
+        catch(IOException ioe){
+            Log.e(TAG, "Error downloading message", ioe);
+            return null;
         }
     }
 
